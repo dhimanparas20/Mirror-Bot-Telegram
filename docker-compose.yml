@@ -1,0 +1,14 @@
+services:
+  debian-app:
+    build: .
+    container_name: debian_app_container
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["sh", "start.sh"]
+    restart: always
+
+# networks:
+#   default:
+#     driver: bridge
