@@ -2,6 +2,20 @@
 
 This is a Telegram bot built using Pyrogram that mirrors links/magnets to Google Drive. Downloads are handled by the famous aria2c. The bot also provides various commands for managing downloads and obtaining system stats.
 
+## Screenshots
+#### Stats
+![SS 1](screenshots/1.png)
+
+#### Starting the Mirror Process
+![SS 2](screenshots/2.png)
+
+#### Uploading Process
+![SS 3](screenshots/3.png)
+
+#### Final Verdict
+![SS 4](screenshots/4.png)
+
+
 ## Features
 
 - **/mirror** - Mirror a URL or magnet link.
