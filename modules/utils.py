@@ -121,14 +121,12 @@ def get_system_usage():
     return results  
 
 # Perform SpeedTest
-async def perform_speedtest():
+def perform_speedtest():
     st = speedtest.Speedtest()
     st.get_servers()
     st.get_best_server()
     download_speed = st.download()
-    await asyncio.sleep(1)  # Simulate async delay
     upload_speed = st.upload()
-    await asyncio.sleep(1)  # Simulate async delay
     ping = st.results.ping
     return {
         'download_speed': download_speed,
