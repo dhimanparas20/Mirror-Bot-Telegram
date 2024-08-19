@@ -6,6 +6,7 @@ from googleapiclient.discovery import build
 from modules.utils import *
 from pyrogram import Client
 from pyrogram import enums
+import logging
 import shutil
 import asyncio
 import aria2p
@@ -13,6 +14,10 @@ import random
 import time
 import requests
 import shutil
+
+# Logging level Settings
+logging.basicConfig(level=logging.INFO, filename='app.log', filemode='w',
+                    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
 # Create aria2 client object
 client =  aria2p.Client(host="http://localhost",port=6800,secret="")
@@ -122,6 +127,7 @@ class MyTgHandler():
         self.chat_id = chat_id
         self.message_id = message_id
         self.file_name = None
+        self.size = None
         self.file_path =None
         self.is_canceled = False
 
@@ -137,7 +143,9 @@ class MyTgHandler():
         downobj = DownloadHandler()
         downobj.purge()
         download = downobj.start_download(url=url) 
+        logging.info(f"Download Started for : {download.name}")
         if download == "Invalid URI":
+            logging.error(f"Invalid URI: {url}")
             self.is_canceled = True
             await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text="Invalid URI")
             return
@@ -176,12 +184,16 @@ class MyTgHandler():
             try:
                 file_name =  child.name
             except:
+                logging.info(f"Download Cancelled by User") 
                 self.is_canceled = True
                 await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text="Same Download is alredy processing.")
                 return
 
             size = child.total_length_string(human_readable=True)
         base_path = path.join(DOWNLOAD_DIR, file_name)
+
+        logging.info(f"Download Complete: {file_name}")
+        logging.info(f"Download Size: {size}")
 
         # handle Cancelled Processes
         try:
@@ -190,7 +202,8 @@ class MyTgHandler():
                 try:
                     remove(base_path+".aria2")
                 except:
-                    pass    
+                    pass   
+                logging.info(f"Mirror Cancelled or Invalid URI") 
                 await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text="Mirror Cancelled or Invalid URI")
                 return
         except:
@@ -199,16 +212,18 @@ class MyTgHandler():
                 try:
                     remove(base_path+".aria2")
                 except:
-                    pass    
+                    pass  
+                logging.info(f"Mirror Cancelled or Invalid URI") 
                 await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text="Mirror Cancelled or Invalid URI")
                 return
 
         await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text=f"Downloaded: **{file_name}**\nSize: **{size}**")
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
 
         async def compress(base_path, file_name):
             if path.isdir(base_path):
+                logging.info(f"Compressing: {file_name}") 
                 await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text="Compressing, Please Wait.")
                 await asyncio.sleep(0.5)
                 zip_name = path.join(DOWNLOAD_DIR, file_name)
@@ -221,6 +236,7 @@ class MyTgHandler():
                 # Optionally, remove the original directory after zipping
                 shutil.rmtree(base_path)
                 file_name = f"{file_name}.zip"
+                logging.info(f"Compressed Name : {file_name}") 
                 return file_name
 
         if compress_file:
@@ -229,9 +245,8 @@ class MyTgHandler():
 
         self.file_path = f"{DOWNLOAD_DIR}/{file_name}"
         self.file_name =file_name  
-        print("\n======================| DOWNLOADED | =========================")
-        print("File Name: ",self.file_name)
-        print("================================================================")
+        self.size = size
+        logging.info(f"Method download_file() completed and Exits. ") 
         return   self.file_path,self.file_name
 
     # Creates a directory in GD
@@ -244,6 +259,7 @@ class MyTgHandler():
             file_metadata["parents"] = [parent_id]
         file = self.service.files().create(supportsAllDrives=USE_SERVICE_ACCOUNT,supportsTeamDrives=USE_TEAM_DRIVE, body=file_metadata).execute()
         file_id = file.get("id")
+        logging.info(f"Directory Created in GD with id: {file_id}")
         return file_id
 
     # Uploades the content of Directory in Gdrive  
@@ -252,6 +268,7 @@ class MyTgHandler():
         if len(list_dirs) == 0:
             return parent_id
         new_id = None
+        logging.info(f"Recursively Uploading Directory content to GD")
         for item in list_dirs:
             current_file_name = path.join(input_directory, item)
             if self.is_canceled:
@@ -270,6 +287,7 @@ class MyTgHandler():
     # Entrypoint to uploading of files
     async def upload(self,file_path,file_name):
         if not self.is_canceled:
+            logging.info(f"Starting Upload Process for: {file_name}")
             print("Uploading: ",self.file_name)
             await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text="Starting Upload Process..")
             await asyncio.sleep(0.5)
@@ -278,19 +296,23 @@ class MyTgHandler():
             link = None
             file_size= get_file_size(path.getsize(self.file_path))
             if path.isdir(file_path):
+                    logging.info(f"Directory Detected")
                     dir_id = await self.create_directory(file_name, parent_id=GD_PARENT_FOLDER_ID)
                     result = await self.upload_dir(file_path, dir_id)
                     link = f"https://drive.google.com/folderview?id={dir_id}"
                     print(f"file uploaded to: {link}")
                     url += "/"
+                    logging.info(f"Removing {self.file_path}")
                     shutil.rmtree(self.file_path) 
             else:
+                logging.info(f"File Detected")
                 await self.upload_file(file_path,file_name) 
+                logging.info(f"Removing {self.file_path}")
                 remove(path=self.file_path)
             print("Upload Complete for: ",self.file_name)
             message=(
                     f"Name: {self.file_name}\n"
-                    f"Size: {file_size}\n"
+                    f"Size: {self.size}\n"
                     )
 
             if link:
@@ -315,14 +337,17 @@ class MyTgHandler():
             
             # await self.client.edit_message_text(chat_id=self.chat_id,message_id=self.message_id,text=message,parse_mode=enums.ParseMode.MARKDOWN,reply_markup=InlineKeyboardMarkup(Button_data))
             print("Full upload complete")
+            logging.info(f"Exiting Upload method")
             return
         
+        logging.info(f"Mirror Cancelled by User")
         await self.client.edit_message_text(chat_id=self.chat_id,message_id=self.message_id,text="Mirror Cancelled by the USER !",parse_mode=enums.ParseMode.MARKDOWN)
 
     #Now Upload the file to gd
     async def upload_file(self,file_path,file_name,parent_folder_id=GD_PARENT_FOLDER_ID):
         if not self.is_canceled:
             mimetype = get_mime_type(file_path=file_path)
+            logging.info(f"Detected mimetype: {mimetype}")
             file_metadata = {
                 'name': file_name,
                 'parents': [parent_folder_id],   #Folder_id
@@ -335,6 +360,7 @@ class MyTgHandler():
             start_time = time.time()
             now_time = time.time()
 
+            logging.info(f"Starting File Upload for: {file_name}")
             while response is None:
                 # os.system("clear")
                 status, response = request.next_chunk()
@@ -368,7 +394,7 @@ class MyTgHandler():
                         now_time = time.time()
                         # await asyncio.sleep(5)
                     except:
-                        pass    
+                        pass  
             return
         return                       
  
@@ -387,14 +413,17 @@ class MyTgHandler():
             serverno = random.randint(0, len(servers))     
             if serverno == len(servers):
                 serverno -= 1
+            logging.info(f"Go server: {servers[serverno]['name']}")    
             return servers[serverno]['name']
         else:
+            logging.info(f"Failed to get Go Server")
             print("Failed to get servers:", data)
             return None
 
     # generates temperary gofile server  
     async def gofile_upload(self,file_path,file_name):
         if not self.is_canceled:
+            logging.info(f"Starting Go Upload")
             go_server = await self.get_gofile_server()
             if go_server is None:
                 print("No server available to upload the file.")
@@ -462,6 +491,7 @@ class MyTgHandler():
                         await self.client.edit_message_text(chat_id=self.chat_id,message_id=self.message_id,text=message,parse_mode=enums.ParseMode.MARKDOWN,reply_markup=InlineKeyboardMarkup(Button_data))
 
                     except Exception as e:
+                        logging.info(f"GoFile Exception: {e}")
                         print(f"Exception: {e}")  
                         await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text="Server Error.\nPlease try again after some time")
 
@@ -469,6 +499,7 @@ class MyTgHandler():
                     await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text="Server Error.\nPlease try again after some time")
 
             except Exception as e:
+                logging.info(f"GoFile Exception: {e}")
                 print("Exception: ",e)
                 await self.client.edit_message_text(chat_id=self.chat_id, message_id=self.message_id, text="Server Error.\nPlease try again after some time")
 
@@ -484,7 +515,7 @@ print(f"Space Free: {system_stats['disk_available_space']}/{system_stats['disk_t
 print(f"Space Used: {system_stats['disk_used_space']}/{system_stats['disk_total_space']}")
 print("======================================")
 
-
+logging.info('Bot Started')
 @app.on_message()
 async def handle(client,message):
     mid,uid,uname,cid = message.id,message.from_user.id,message.from_user.username,message.chat.id
@@ -493,9 +524,18 @@ async def handle(client,message):
     #Breakdown the message into parts
     parts = message.text.split()
     list_len = len(parts)
+    try:
+        username = uname
+    except:
+        username = None   
+    logging.info(f"=====================================")
+    logging.info(f'Received Command: {parts[0]} by @{username}')
+    logging.info(f"=====================================")
+
     
     if parts[0] == "/start" and list_len == 1:
         dataret = await message.reply_text("👋**__Welcome to Bot__** ", quote=True,parse_mode=enums.ParseMode.MARKDOWN)
+        logging.info(f"User:{uid} -  Query:start  Completed")
 
     elif parts[0] == "/mirror" and list_len == 2:
         
@@ -504,11 +544,13 @@ async def handle(client,message):
         await asyncio.sleep(0.5) 
 
         # try:
+        logging.info(f"Mirror Started by: {uid} in chat {cid}")
         myobj = MyTgHandler(url=url,userid=uid,tgclient=client,chat_id=cid,message_id=sentdata.id)
         task1 = asyncio.create_task(myobj.download_file(compress_file=False,url=url))
         file_path,file_name  = await task1
         task2 = asyncio.create_task(myobj.upload(file_path,file_name))
         await task2
+        logging.info(f"User:{uid} -  Query:mirror  Completed")
         return
         
         # except Exception as e:
@@ -523,11 +565,13 @@ async def handle(client,message):
         await asyncio.sleep(0.5) 
 
         # try:
+        logging.info(f"Zip-Mirror Started by: {uid} in chat {cid}")
         myobj = MyTgHandler(url=url,userid=uid,tgclient=client,chat_id=cid,message_id=sentdata.id)
         task1 = asyncio.create_task(myobj.download_file(compress_file=True,url=url))
         file_path,file_name  = await task1
         task2 = asyncio.create_task(myobj.upload(file_path,file_name))
         await task2
+        logging.info(f"User:{uid} -  Query:zipmirror  Completed")
         return    
 
     elif parts[0] == "/link" and list_len == 2:
@@ -537,14 +581,17 @@ async def handle(client,message):
 
         # Schedule the coroutine to be run in the event loop
         try:
+            logging.info(f"Link Mirror Started by: {uid} in chat {cid}")
             myobj = MyTgHandler(url=url,userid=uid,tgclient=client,chat_id=cid,message_id=sentdata.id)
             task1 = asyncio.create_task(myobj.download_file(compress_file=True,url=url))
             file_path,file_name  = await task1
             task2 = asyncio.create_task(myobj.gofile_upload(file_path, file_name))
             await task2
+            logging.info(f"User:{uid} -  Query:link  Completed")
             return
         
         except Exception as e:
+            logging.info(f"link Exception: {e}")
             print(f"Exception: {e}")
             await client.edit_message_text(chat_id=cid, message_id=sentdata.id, text=f"Exception: {e}")
             return
@@ -555,25 +602,27 @@ async def handle(client,message):
         await asyncio.sleep(0.5) 
         object = DownloadHandler()
         try:
+            logging.info(f"Cancel Called by: {uid} in chat {cid} for {gid}")
             download = object.get_download(gid=gid)
             if not download.is_complete:
                 result = object.stop_download(download=download)
                 if result[0]:
                     await client.delete_messages(chat_id=cid,message_ids=sentdata.id)
+                    logging.info(f"User:{uid} -  Query:cancel  Completed")
                     return
             else:
+                logging.info(f"Cant Cancel Uploading task ID: {gid}")
                 await message.reply_text("For Now, Uploading Tasks Cant Be Cancelled :-( ", quote=True)
                 return
-        except:
+        except Exception as e:
             await client.edit_message_text(chat_id=cid, message_id=sentdata.id, text="Invalid ID")
+            logging.info(f"Invalid Cancel ID: {gid}.")
+            logging.info(f"Exception: {e}")
             return
 
     elif parts[0] == "/stats" and list_len == 1:
+        logging.info("Serving Stats")
         stats = get_system_usage()
-        # cpu_usage_percent , ram_usage_percent ,disk_usage_percent  , disk_used_space, disk_total_space, disk_available_space
-        # print(f"CPU Usage: {cpu_usage}%")
-        # print(f"RAM Usage: {ram_usage}%")
-        # print(f"Disk Usage: {disk_usage_percent}%")
         msg = (
             f"**CPU Usage:** {stats['cpu_usage_percent']}%\n"
             f"**RAM Usage:** {stats['ram_usage_percent']}%\n"
@@ -582,12 +631,13 @@ async def handle(client,message):
             f"**Disk Free:** {stats['disk_available_space']}/{stats['disk_total_space']}\n"
         )
         await message.reply_text(msg, quote=True,parse_mode=enums.ParseMode.MARKDOWN)
+        logging.info(f"User:{uid} -  Query:stats  Completed")
         return
 
     elif parts[0] == "/speedtest" and list_len == 1:
         sentdata = await message.reply_text("Running the Horses. Please Wait", quote=True,parse_mode=enums.ParseMode.MARKDOWN)
         start_time = time.time()
-        speedtest = await perform_speedtest()
+        speedtest = perform_speedtest()
         stop_time = time.time()-start_time
         if speedtest:
             msg = (
@@ -597,13 +647,17 @@ async def handle(client,message):
                 f"**⌛ Time Taken:** {stop_time:.0f}s"
             )
             await client.edit_message_text(chat_id=cid, message_id=sentdata.id, text=msg)
+            logging.info(f"User:{uid} -  Query:speedtest  Completed")
             return
         else:    
             await client.edit_message_text(chat_id=cid, message_id=sentdata.id, text="Unable to Fetch Speed :-( ")
+            logging.info(f"Unable to fetch Speed")
             return
         
     elif parts[0] == "/ping" or parts[0].lower()=="ping":
         await message.reply_text(f"[Pong!](tg://user?id={uid}) 🏓", quote=True,parse_mode=enums.ParseMode.MARKDOWN)
+        logging.info(f"User:{uid} -  Query:ping  Completed")
+        return
 
     elif parts[0] == "/allfiles" or parts[0]=="/index":
         msg=(f"Index Link For All Files.")
@@ -617,15 +671,20 @@ async def handle(client,message):
                 ] 
         # await app.send_message("{uid}", message,parse_mode=enums.ParseMode.MARKDOWN,reply_markup=InlineKeyboardMarkup(Button_data))
         await message.reply_text(msg, quote=False,parse_mode=enums.ParseMode.MARKDOWN,reply_markup=InlineKeyboardMarkup(Button_data))
+        logging.info(f"User:{uid} -  Query:allfiles  Completed")
+        return
             
     elif parts[0] == "/help":
         msg = (f"\nWelcome to the bot."
             f"\nGoto [Repo](https://github.com/dhimanparas20?tab=repositories) for more details"
             f"\nThe bot is used to mirror files to Google Drive or provide a Direct Download Link.")
         await message.reply_text(msg, quote=True,parse_mode=enums.ParseMode.MARKDOWN)
+        logging.info(f"User:{uid} -  Query:help  Completed")
+        return
 
     else:
         await message.reply_text("No Valid Command\ntry /help for Help", quote=True,parse_mode=enums.ParseMode.MARKDOWN)
+        logging.info(f"User:{uid} -  Query:NoCommand  Completed")
         return
 
 if __name__ == "__main__":
